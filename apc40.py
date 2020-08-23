@@ -70,7 +70,7 @@ def update():
 			vJoy[0].dial = readAxis()
 	
 	### vJoy Device #1 - POV Hat Switch / BANK SELECT
-	if (status == MidiStatus.NoteOn or status == MidiStatus.NoteOff) and channel == 0:
+	if (status == MidiStatus.NoteOn or status == MidiStatus.NoteOff) and channel == 0 and buffer0 >= 94 and buffer0 <= 97:
 		
 		if buffer0 == 94 and MidiStatus.NoteOn:
 			povDirection = VJoyPov.Up
@@ -84,7 +84,7 @@ def update():
 		if buffer0 == 97 and MidiStatus.NoteOn:
 			povDirection = VJoyPov.Left
 			
-		if buffer0 >= 94 and buffer0 <= 97 and status == MidiStatus.NoteOff:
+		if status == MidiStatus.NoteOff:
 			povDirection = VJoyPov.Nil
 			
 		vJoy[0].setDigitalPov(0, povDirection)
