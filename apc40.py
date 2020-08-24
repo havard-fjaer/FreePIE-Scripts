@@ -1,21 +1,95 @@
-
+from array import *
+import time
 
 MIDIDEVICE = 1
 JOY_MIN = -17873
 JOY_MAX = 17873
+JOY_DEV_0 = 0
+JOY_DEV_1 = 1
+JOY_DEV_2 = 2
+JOY_DEV_3 = 3
 
+class MidiEncoder:
+	def __init__(self, buttonOffset):
+		self.previousRawMidiValue = 0
+		self.buttonState = False
+		self.buttonOffset = buttonOffset
+		self.downButton = self.buttonOffset
+		self.upButton = self.buttonOffset + 1
+		self.currentDirection = 0
+		self.previousDirection = 0
+		self.ticksSinceLastDirectionUpdate = 0
+		self.buttonActivatedClock = time.clock()
+		self.offButtonDelay = 0.05
+		self.updateEncoderTickInterval = 10 # Update soft encoder every 10 ticks from raw MIDI encoder
+	
+	
+	def checkButtonOffDelay(self): 
+		if self.buttonActivatedClock + self.offButtonDelay < time.clock():
+			self.buttonState = False
+			vJoy[JOY_DEV_2].setButton(self.downButton, 0)
+			vJoy[JOY_DEV_2].setButton(self.upButton, 0)
+					
+	
+	def updateEncoderButtonState(self, currentRawMidiValue):
+		
+		direction = self.getUpdatedDirection(currentRawMidiValue)
+		
+		if direction == -1:
+			vJoy[JOY_DEV_2].setButton(self.downButton, 1)
+			self.buttonState = True
+			self.buttonActivatedClock = time.clock()
+		
+		if direction == 1:
+			vJoy[JOY_DEV_2].setButton(self.upButton, 1)
+			self.buttonState = True
+			self.buttonActivatedClock = time.clock()
+	
+	
+	def getUpdatedDirection(self, currentRawMidiValue):
+		
+		exposedDirection = 0 
+		
+		if currentRawMidiValue > self.previousRawMidiValue or currentRawMidiValue == 127:
+			self.currentDirection = 1
+			
+		if currentRawMidiValue < self.previousRawMidiValue or currentRawMidiValue == 0:
+			self.currentDirection = -1
+		
+		# Direction change
+		if self.currentDirection != self.previousDirection:			
+			self.previousDirection = self.currentDirection			
+			self.ticksSinceLastDirectionUpdate = 0 
+			# Expose direction change, regardless of counter
+			exposedDirection = self.currentDirection 
+		
+		# Expose current direction if ticks has passed configured interval
+		if self.ticksSinceLastDirectionUpdate >= self.updateEncoderTickInterval:
+			exposedDirection = self.currentDirection
+			self.ticksSinceLastDirectionUpdate = 0
+		
+		self.previousRawMidiValue = currentRawMidiValue
+		self.ticksSinceLastDirectionUpdate += 1
+
+		return exposedDirection
+			
 
 def readAxis():
 	return filters.mapRange(midi[MIDIDEVICE].data.buffer[1], 0, 127, JOY_MIN, JOY_MAX)
 
+def readEncoder():
+	return midi[MIDIDEVICE].data.buffer[1]
+
 def readButton():
 	return midi[MIDIDEVICE].data.status == MidiStatus.NoteOn
 
-
 def update():
-	global povValue;
+	global povValue
+	global encoders
+	global lastButtonPressed
+	global timepress
 	
-	# Global values
+	# MIDI
 	channel = midi[MIDIDEVICE].data.channel
 	buffer0 = midi[MIDIDEVICE].data.buffer[0]
 	buffer1 = midi[MIDIDEVICE].data.buffer[1]
@@ -34,42 +108,42 @@ def update():
 	### vJoy Device #1 ###
 	######################	
 
-	### vJoy Device #1 - Sliders --> Axis ###
+	# Axis - from Track sliders 
 	if status == MidiStatus.Control and buffer0 == 7:
 		
-		# vJoy.0.x
+		# x
 		if channel == 0 and buffer0 == 7:
-			vJoy[0].x = readAxis()
+			vJoy[JOY_DEV_0].x = readAxis()
 	
-		# vJoy.0.y
+		# y
 		if channel == 1 and buffer0 == 7:
-			vJoy[0].y = readAxis()
+			vJoy[JOY_DEV_0].y = readAxis()
 	
-		# vJoy.0.z
+		# z
 		if channel == 2 and buffer0 == 7:
-			vJoy[0].z = readAxis()
+			vJoy[JOY_DEV_0].z = readAxis()
 	
-		# vJoy.0.rx
+		# rx
 		if channel == 3 and buffer0 == 7:
-			vJoy[0].rx = readAxis()
+			vJoy[JOY_DEV_0].rx = readAxis()
 	
-		# vJoy.0.ry
+		# ry
 		if channel == 4 and buffer0 == 7:
-			vJoy[0].ry = readAxis()
+			vJoy[JOY_DEV_0].ry = readAxis()
 	
-		# vJoy.0.rz
+		# rz
 		if channel == 5 and buffer0 == 7:
-			vJoy[0].rz = readAxis()
+			vJoy[JOY_DEV_0].rz = readAxis()
 	
-		# vJoy.0.slider
+		# slider
 		if channel == 6 and buffer0 == 7:
-			vJoy[0].slider = readAxis()
+			vJoy[JOY_DEV_0].slider = readAxis()
 	
-		# vJoy.0.dial
+		# dial
 		if channel == 7 and buffer0 == 7:
-			vJoy[0].dial = readAxis()
+			vJoy[JOY_DEV_0].dial = readAxis()
 	
-	### vJoy Device #1 - POV Hat Switch / BANK SELECT
+	# POV Hat Switch - from Bank Select
 	if (status == MidiStatus.NoteOn or status == MidiStatus.NoteOff) and channel == 0 and buffer0 >= 94 and buffer0 <= 97:
 		
 		if buffer0 == 94 and MidiStatus.NoteOn:
@@ -87,72 +161,72 @@ def update():
 		if status == MidiStatus.NoteOff:
 			povDirection = VJoyPov.Nil
 			
-		vJoy[0].setDigitalPov(0, povDirection)
+		vJoy[JOY_DEV_0].setDigitalPov(0, povDirection)
 	
 	
-	### vJoy Device #1 - Activator, Solo/Cue, Record arm --> Toggle buttons ###	
+	# Toggle buttons - from Activator, Solo/Cue, Record arm
 	if status == MidiStatus.NoteOn or status == MidiStatus.NoteOff:
 		
-		# Activator - Buttons 1-8(, 11-18, 21-28)
+		# Activator - Buttons 1-8
 		for c in range(8): 
 			if channel == c and buffer0 == 50:
 				buttonIndex = c + 0
-				vJoy[0].setButton(buttonIndex, readButton())	
+				vJoy[JOY_DEV_0].setButton(buttonIndex, readButton())	
 	
 		# Solo / Cue - Buttons 11-18
 		for c in range(8): 
 			if channel == c and buffer0 == 49:
 				buttonIndex = c + 10
-				vJoy[0].setButton(buttonIndex, readButton())	
+				vJoy[JOY_DEV_0].setButton(buttonIndex, readButton())	
 	
 		# Record Arm - Buttons 21-28
 		for c in range(8): 
 			if channel == c and buffer0 == 48:
 				buttonIndex = c + 20
-				vJoy[0].setButton(buttonIndex, readButton())	
+				vJoy[JOY_DEV_0].setButton(buttonIndex, readButton())	
 	
 
 	######################
 	### vJoy Device #2 ###
 	######################	
 	
-	### vJoy Device #2 - Track Control Sliders--> Axis ###	
-	if status == MidiStatus.Control and channel == 0:
-	
-		# vJoy.1.x
-		if buffer0 == 48:
-			vJoy[1].x = readAxis()
-	
-		# vJoy.1.y
-		if buffer0 == 49:
-			vJoy[1].y = readAxis()
-	
-		# vJoy.1.z
-		if buffer0 == 50:
-			vJoy[1].z = readAxis()
-	
-		# vJoy.1.rx
-		if buffer0 == 51:
-			vJoy[1].rx = readAxis()
-	
-		# vJoy.1.ry
-		if buffer0 == 52:
-			vJoy[1].ry = readAxis()
-	
-		# vJoy.1.rz
-		if buffer0 == 53:
-			vJoy[1].rz = readAxis()
-	
-		# vJoy.1.slider
-		if buffer0 == 54:
-			vJoy[1].slider = readAxis()
-	
-		# vJoy.1.dial
-		if buffer0 == 55:
-			vJoy[1].dial = readAxis()			
+	# Axis - from Track Control Encoders
+	#if status == MidiStatus.Control and channel == 0:
+	#
+	#	# x
+	#	if buffer0 == 48:
+	#		vJoy[JOY_DEV_1].x = readAxis()
+	#
+	#	# y
+	#	if buffer0 == 49:
+	#		vJoy[JOY_DEV_1].y = readAxis()
+	#
+	#	# z
+	#	if buffer0 == 50:
+	#		vJoy[JOY_DEV_1].z = readAxis()
+	#
+	#	# rx
+	#	if buffer0 == 51:
+	#		vJoy[JOY_DEV_1].rx = readAxis()
+	#
+	#	# ry
+	#	if buffer0 == 52:
+	#		vJoy[JOY_DEV_1].ry = readAxis()
+	#
+	#	# rz
+	#	if buffer0 == 53:
+	#		vJoy[JOY_DEV_1].rz = readAxis()
+	#
+	#	# slider
+	#	if buffer0 == 54:
+	#		vJoy[JOY_DEV_1].slider = readAxis()
+	#
+	#	# dial
+	#	if buffer0 == 55:
+	#		vJoy[JOY_DEV_1].dial = readAxis()			
 			
 	
-	### vJoy Device #2 - Clip launch, Clip stop and Scene launch --> Momentary buttons ###
+	# Momentary buttons - from Clip launch, Clip stop and Scene launch 
 	if status == MidiStatus.NoteOn or status == MidiStatus.NoteOff:
 		
 		# Clip Launch - Buttons 1-8, 11-18, [...] through 48
@@ -162,7 +236,7 @@ def update():
 				buffer0Offset = 53 + b
 				if channel == c and buffer0 == buffer0Offset:
 					buttonIndex = buttonMatrixY + c # Add channel / column to row to get button index / number
-					vJoy[1].setButton(buttonIndex, readButton())	
+					vJoy[JOY_DEV_1].setButton(buttonIndex, readButton())	
 	
 		# Scene Launch - Buttons 9, 19, 29, 39, 49
 		for b in range(5):
@@ -170,125 +244,189 @@ def update():
 			buffer0Offset = 82 + b
 			if channel == 0 and buffer0 == buffer0Offset:
 				buttonIndex = buttonMatrixY + 8
-				vJoy[1].setButton(buttonIndex, readButton())
+				vJoy[JOY_DEV_1].setButton(buttonIndex, readButton())
 	
 		# Clip Stop - Buttons 51-58
 		for c in range(8): 
 			if channel == c and buffer0 == 52:
 				buttonIndex = 50 + c
-				vJoy[1].setButton(buttonIndex, readButton())	
+				vJoy[JOY_DEV_1].setButton(buttonIndex, readButton())	
 		
 		# Stop All Clips - Button 59 
 		if channel == 0 and buffer0 == 81:
-			vJoy[1].setButton(58, readButton())	
+			vJoy[JOY_DEV_1].setButton(58, readButton())	
 
 		# Track Control - Toggle buttons 61-64
 		for b in range(4):
 			buffer0Offset = 87 + b
 			if channel == 0 and buffer0 == buffer0Offset:
 				buttonIndex = b + 60
-				vJoy[1].setButton(buttonIndex, readButton())
+				vJoy[JOY_DEV_1].setButton(buttonIndex, readButton())
+
 
 	######################
 	### vJoy Device #3 ###
 	######################
 	
-	# APC40 Device Control for Master Track - Channel 8. Device Control for Channel 0-7 is not mapped to any vJoy devices yet.
+	# Axis - from Device Control Encoders
+	# Channel 8 - Master Track. Device Control for Channel 0-7 is not mapped to any vJoy devices. Yet.
+	#if status == MidiStatus.Control and channel == 8:
+	#
+	#	# x
+	#	if buffer0 == 16:
+	#		vJoy[JOY_DEV_2].x = readAxis()
+	#
+	#	# y
+	#	if buffer0 == 17:
+	#		vJoy[JOY_DEV_2].y = readAxis()
+	#
+	#	# z
+	#	if buffer0 == 18:
+	#		vJoy[JOY_DEV_2].z = readAxis()
+	#
+	#	# rx
+	#	if buffer0 == 19:
+	#		vJoy[JOY_DEV_2].rx = readAxis()
+	#
+	#	# ry
+	#	if buffer0 == 20:
+	#		vJoy[JOY_DEV_2].ry = readAxis()
+	#
+	#	# rz
+	#	if buffer0 == 21:
+	#		vJoy[JOY_DEV_2].rz = readAxis()
+	#
+	#	# slider
+	#	if buffer0 == 22:
+	#		vJoy[JOY_DEV_2].slider = readAxis()
+	#
+	#	# dial
+	#	if buffer0 == 23:
+	#		vJoy[JOY_DEV_2].dial = readAxis()
+			
+	# "Encoder like" buttons - from Device Control Encoders
 	if status == MidiStatus.Control and channel == 8:
-	
-		# vJoy.2.x
-		if buffer0 == 16:
-			vJoy[2].x = readAxis()
-	
-		# vJoy.2.y
-		if buffer0 == 17:
-			vJoy[2].y = readAxis()
-	
-		# vJoy.2.z
-		if buffer0 == 18:
-			vJoy[2].z = readAxis()
-	
-		# vJoy.2.rx
-		if buffer0 == 19:
-			vJoy[2].rx = readAxis()
-	
-		# vJoy.2.ry
-		if buffer0 == 20:
-			vJoy[2].ry = readAxis()
-	
-		# vJoy.2.rz
-		if buffer0 == 21:
-			vJoy[2].rz = readAxis()
-	
-		# vJoy.2.slider
-		if buffer0 == 22:
-			vJoy[2].slider = readAxis()
-	
-		# vJoy.2.dial
-		if buffer0 == 23:
-			vJoy[2].dial = readAxis()
 
-	# Momentary buttons
+		
+		# Button pairs: 9 and 10, 11 and 12 - up to 23 and 24
+		# {{<MIDI buffer>:<vJoy button>}, [...]}
+		encoderButtons = {16:9,17:11,18:13,19:15,20:17,21:19,22:21,23:23}
+		encoderIndex = 0
+		
+		for key in encoderButtons:
+		
+			if buffer0 == key:	
+				
+				diagnostics.watch(key)				
+				
+				currentEncoderState = readEncoder()				
+				# direction = encoders[JOY_DEV_2][encoderIndex].getUpdatedDirection(currentEncoderState)
+				
+				encoders[JOY_DEV_2][encoderIndex].updateEncoderButtonState(currentEncoderState)
+				
+				
+				# if direction == -1:
+				# 	vJoy[JOY_DEV_2].setButton(buttonDown, 1)					
+				# 	lastButtonPressed = buttonDown
+				# 
+				# if direction == 1:
+				# 	vJoy[JOY_DEV_2].setButton(buttonUp, 1)
+				# 	lastButtonPressed = buttonUp
+					
+				
+				diagnostics.watch(currentEncoderState)
+				diagnostics.watch(encoders[JOY_DEV_2][encoderIndex].buttonActivatedClock)
+				diagnostics.watch(encoders[JOY_DEV_2][encoderIndex].currentDirection)
+				diagnostics.watch(encoders[JOY_DEV_2][encoderIndex].previousDirection)			
+				diagnostics.watch(encoders[JOY_DEV_2][encoderIndex].previousRawMidiValue)
+				diagnostics.watch(encoders[JOY_DEV_2][encoderIndex].ticksSinceLastDirectionUpdate)
+			
+			encoderIndex += 1
+			
+			
+	
+
+	# Momentary buttons - from Track Control
 	if status == MidiStatus.NoteOn or status == MidiStatus.NoteOff:
 
 		# Track Control - Buttons 1-8
 		for b in range(8):
 			buffer0Offset = 58 + b
 			if channel == 8 and buffer0 == buffer0Offset:
-				vJoy[2].setButton(b, readButton())
+				vJoy[JOY_DEV_2].setButton(b, readButton())
+
 
 	######################
 	### vJoy Device #4 ###
 	######################
 	
-	### vJoy Device #4 - Sliders --> Axis ###
+	# Axis - from Master slider and Balance slider
 	if status == MidiStatus.Control and channel == 0:
 		
-		# vJoy.3.x
+		# x - Balance slider
 		if buffer0 == 15:
-			vJoy[3].x = readAxis()
+			vJoy[JOY_DEV_3].x = readAxis()
 	
-		# vJoy.3.y
+		# y - Master slider
 		if buffer0 == 14:
-			vJoy[3].y = readAxis()
+			vJoy[JOY_DEV_3].y = readAxis()
 
-	### vJoy Device #4 - Buttons
+	# Buttons - from Misc
 	if (status == MidiStatus.NoteOn or status == MidiStatus.NoteOff) and channel == 0:
 	
 		# Playback, Bank select, Tempo, Misc - Buttons 1-11
 		for b in range(11):
 			buffer0Offset = 91 + b
 			if buffer0 == buffer0Offset:
-				vJoy[3].setButton(b, readButton())
+				vJoy[JOY_DEV_3].setButton(b, readButton())	 
 
-	 
-	 
-
-	### vJoy Device #4 - Encoder - Cue Level
+	# Encoder - from Cue Level
 	if status == MidiStatus.Control and channel == 0 and buffer0 == 47:
 
-		povMax = vJoy[3].continuousPovMax
+		povMax = vJoy[JOY_DEV_3].continuousPovMax
 		povIncrement = povMax / 100
 		
+		# MIDI signal is in lower 0-4 values when going up, and upper 123-127 when going down
+		# POV value is held withing upper and lower limits
+		# Up and Down buttons are triggered regardless of limits
+		
 		if buffer1 >= 120:
-			vJoy[3].setPressed(11) # Encoder button down
+			vJoy[JOY_DEV_3].setPressed(11) # Encoder button down
 			if povValue > 0:
 				povValue -= povIncrement
 			
 		if buffer1 <= 10 :
-			vJoy[3].setPressed(12) # Encoder button up
+			vJoy[JOY_DEV_3].setPressed(12) # Encoder button up
 			if povValue < povMax:
 				povValue += povIncrement
 		
-		vJoy[3].setAnalogPov(0, povValue)
-			
-			
-		diagnostics.watch(vJoy[3].continuousPovMax)
-		diagnostics.watch(povValue)
+		vJoy[JOY_DEV_3].setAnalogPov(0, povValue)			
 			
 
 
 if starting:
 	povValue = 0
+	timepress = 0
+	lastButtonPressed = 0
+
+	encoders = {JOY_DEV_1:{}, JOY_DEV_2:{}}
+	# Add 8 encoders to JOY_DEV_1
+	for encIndex in range(8):
+		buttonOffset = 64 + (encIndex * 2) 
+		encoders[JOY_DEV_1][encIndex] = MidiEncoder(buttonOffset)
+
+	# Add 8 encoders to JOY_DEV_2
+	for encIndex in range(8):
+		buttonOffset = 8 + (encIndex * 2) 
+		encoders[JOY_DEV_2][encIndex] = MidiEncoder(buttonOffset)
+		
 	midi[MIDIDEVICE].update += update
-	
+
+# Check off timers on all encoders
+for dev in encoders:
+	for encoder in encoders[dev]:
+		diagnostics.watch(encoders[dev][encoder].checkButtonOffDelay())
+
+
+diagnostics.watch(encoders[JOY_DEV_2][0].buttonState)
+diagnostics.watch(encoders[JOY_DEV_2][0].buttonActivatedClock)
