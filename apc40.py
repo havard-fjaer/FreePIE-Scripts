@@ -10,8 +10,9 @@ JOY_DEV_2 = 2
 JOY_DEV_3 = 3
 
 class MidiEncoder:
-	def __init__(self, buttonOffset):
+	def __init__(self, vJoyDev, buttonOffset):
 		self.previousRawMidiValue = 0
+		self.vJoyDev = vJoyDev
 		self.buttonState = False
 		self.buttonOffset = buttonOffset
 		self.downButton = self.buttonOffset
@@ -27,8 +28,8 @@ class MidiEncoder:
 	def checkButtonOffDelay(self): 
 		if self.buttonActivatedClock + self.offButtonDelay < time.clock():
 			self.buttonState = False
-			vJoy[JOY_DEV_2].setButton(self.downButton, 0)
-			vJoy[JOY_DEV_2].setButton(self.upButton, 0)
+			vJoy[self.vJoyDev].setButton(self.downButton, 0)
+			vJoy[self.vJoyDev].setButton(self.upButton, 0)
 					
 	
 	def updateEncoderButtonState(self, currentRawMidiValue):
@@ -36,12 +37,12 @@ class MidiEncoder:
 		direction = self.getUpdatedDirection(currentRawMidiValue)
 		
 		if direction == -1:
-			vJoy[JOY_DEV_2].setButton(self.downButton, 1)
+			vJoy[self.vJoyDev].setButton(self.downButton, 1)
 			self.buttonState = True
 			self.buttonActivatedClock = time.clock()
 		
 		if direction == 1:
-			vJoy[JOY_DEV_2].setButton(self.upButton, 1)
+			vJoy[self.vJoyDev].setButton(self.upButton, 1)
 			self.buttonState = True
 			self.buttonActivatedClock = time.clock()
 	
@@ -262,7 +263,17 @@ def update():
 			if channel == 0 and buffer0 == buffer0Offset:
 				buttonIndex = b + 60
 				vJoy[JOY_DEV_1].setButton(buttonIndex, readButton())
-
+				
+	# "Encoder like" buttons - from Device Control Encoders
+	if status == MidiStatus.Control and channel == 0:
+		# Button pairs: 9 and 10, 11 and 12 - up to 23 and 24
+		# {{<MIDI buffer>:<vJoy button>}, [...]}
+		encoderIndex = 0
+		for key in range(48,56):
+			if buffer0 == key:	
+				currentEncoderState = readEncoder()				
+				encoders[JOY_DEV_1][encoderIndex].updateEncoderButtonState(currentEncoderState)
+			encoderIndex += 1
 
 	######################
 	### vJoy Device #3 ###
@@ -306,41 +317,13 @@ def update():
 			
 	# "Encoder like" buttons - from Device Control Encoders
 	if status == MidiStatus.Control and channel == 8:
-
-		
 		# Button pairs: 9 and 10, 11 and 12 - up to 23 and 24
 		# {{<MIDI buffer>:<vJoy button>}, [...]}
-		encoderButtons = {16:9,17:11,18:13,19:15,20:17,21:19,22:21,23:23}
 		encoderIndex = 0
-		
-		for key in encoderButtons:
-		
+		for key in range(16,24):
 			if buffer0 == key:	
-				
-				diagnostics.watch(key)				
-				
 				currentEncoderState = readEncoder()				
-				# direction = encoders[JOY_DEV_2][encoderIndex].getUpdatedDirection(currentEncoderState)
-				
 				encoders[JOY_DEV_2][encoderIndex].updateEncoderButtonState(currentEncoderState)
-				
-				
-				# if direction == -1:
-				# 	vJoy[JOY_DEV_2].setButton(buttonDown, 1)					
-				# 	lastButtonPressed = buttonDown
-				# 
-				# if direction == 1:
-				# 	vJoy[JOY_DEV_2].setButton(buttonUp, 1)
-				# 	lastButtonPressed = buttonUp
-					
-				
-				diagnostics.watch(currentEncoderState)
-				diagnostics.watch(encoders[JOY_DEV_2][encoderIndex].buttonActivatedClock)
-				diagnostics.watch(encoders[JOY_DEV_2][encoderIndex].currentDirection)
-				diagnostics.watch(encoders[JOY_DEV_2][encoderIndex].previousDirection)			
-				diagnostics.watch(encoders[JOY_DEV_2][encoderIndex].previousRawMidiValue)
-				diagnostics.watch(encoders[JOY_DEV_2][encoderIndex].ticksSinceLastDirectionUpdate)
-			
 			encoderIndex += 1
 			
 			
@@ -413,12 +396,12 @@ if starting:
 	# Add 8 encoders to JOY_DEV_1
 	for encIndex in range(8):
 		buttonOffset = 64 + (encIndex * 2) 
-		encoders[JOY_DEV_1][encIndex] = MidiEncoder(buttonOffset)
+		encoders[JOY_DEV_1][encIndex] = MidiEncoder(JOY_DEV_1, buttonOffset)
 
 	# Add 8 encoders to JOY_DEV_2
 	for encIndex in range(8):
 		buttonOffset = 8 + (encIndex * 2) 
-		encoders[JOY_DEV_2][encIndex] = MidiEncoder(buttonOffset)
+		encoders[JOY_DEV_2][encIndex] = MidiEncoder(JOY_DEV_2, buttonOffset)
 		
 	midi[MIDIDEVICE].update += update
 
